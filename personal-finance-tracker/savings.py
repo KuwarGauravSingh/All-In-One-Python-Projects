@@ -1,31 +1,48 @@
 from database import get_connection
+from utils import prompt_amount, confirm, money
+
+
+def get_goal():
+    conn = get_connection()
+    row = conn.execute("SELECT goal_amount FROM savings_goal WHERE id = 1").fetchone()
+    conn.close()
+    return row[0] if row else None
+
 
 def set_goal():
-    goal_amount = float(input("Enter your savings goal: "))
-    
+    print("\n--- Set Savings Goal ---")
+    current = get_goal()
+    if current:
+        print(f"Current goal: {money(current)}")
+        if not confirm("Replace it with a new goal?"):
+            return
+
+    goal_amount = prompt_amount("Enter your savings goal")
+
     conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("INSERT OR REPLACE INTO savings_goal (id, goal_amount) VALUES (1, ?)", (goal_amount,))
+    conn.execute(
+        "INSERT OR REPLACE INTO savings_goal (id, goal_amount) VALUES (1, ?)",
+        (goal_amount,),
+    )
     conn.commit()
     conn.close()
-    
-    print(f"Savings goal of {goal_amount} set successfully!")
+    print(f"Savings goal of {money(goal_amount)} set successfully!")
+
 
 def track_savings_progress(balance):
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT goal_amount FROM savings_goal WHERE id = 1")
-    goal_row = cursor.fetchone()
-    conn.close()
-    
-    if goal_row:
-        goal_amount = goal_row[0]
-        remaining = goal_amount - balance
-        if remaining > 0:
-            print(f"You need to save {remaining} more to reach your goal.")
-        else:
-            print(f"Congratulations! You've reached your savings goal.")
+    goal_amount = get_goal()
+    if goal_amount is None:
+        print("\nNo savings goal set. Use 'Set Savings Goal' from the main menu.")
+        return
+
+    progress = max(0.0, min(balance / goal_amount, 1.0))
+    filled = int(progress * 20)
+    bar = "#" * filled + "-" * (20 - filled)
+    print(f"\nSavings Goal: {money(goal_amount)}")
+    print(f"Progress:     [{bar}] {progress * 100:.1f}%")
+
+    remaining = goal_amount - balance
+    if remaining > 0:
+        print(f"You need to save {money(remaining)} more to reach your goal.")
     else:
-        print("No savings goal set.")
+        print("Congratulations! You've reached your savings goal.")

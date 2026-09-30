@@ -1,139 +1,132 @@
+import os
 import matplotlib.pyplot as plt
-from database import get_connection
+from database import get_connection, BASE_DIR
+from utils import confirm
+
+CHART_DIR = os.path.join(BASE_DIR, "charts")
+DAY = "substr(date, 1, 10)"
+MONTH = "substr(date, 1, 7)"
+
+
+def _query(sql):
+    conn = get_connection()
+    rows = conn.execute(sql).fetchall()
+    conn.close()
+    return rows
+
+
+def _show(filename):
+    """Optionally save the current figure as a PNG, then display it."""
+    plt.tight_layout()
+    if confirm("Save this chart as an image?", default=False):
+        os.makedirs(CHART_DIR, exist_ok=True)
+        path = os.path.join(CHART_DIR, filename)
+        plt.savefig(path, dpi=150)
+        print(f"Chart saved to {path}")
+    plt.show()
+
 
 def bar_chart_expense():
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT category, SUM(amount) FROM transactions WHERE type = 'Expense' GROUP BY category")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if rows:
-        categories = [row[0] for row in rows]
-        amounts = [row[1] for row in rows]
-        
-        plt.bar(categories, amounts)
-        plt.xlabel('Category')
-        plt.ylabel('Amount')
-        plt.title('Spending by Category')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.show()
-    else:
+    rows = _query("SELECT category, SUM(amount) FROM transactions "
+                  "WHERE type = 'Expense' GROUP BY category ORDER BY 2 DESC")
+    if not rows:
         print("No expenses recorded yet.")
+        return
+    categories, amounts = zip(*rows)
+    plt.figure(figsize=(9, 5))
+    bars = plt.bar(categories, amounts, color="#4C78A8")
+    plt.bar_label(bars, fmt="%.0f", padding=2)
+    plt.xlabel("Category")
+    plt.ylabel("Amount")
+    plt.title("Spending by Category")
+    plt.xticks(rotation=45, ha="right")
+    _show("spending_by_category_bar.png")
+
 
 def pie_chart_expense():
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT category, SUM(amount) FROM transactions WHERE type = 'Expense' GROUP BY category")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if rows:
-        categories = [row[0] for row in rows]
-        amounts = [row[1] for row in rows]
-        
-        plt.pie(amounts, labels=categories, autopct='%1.1f%%', startangle=90)
-        plt.title('Spending by Category')
-        plt.tight_layout()
-        plt.show()
-    else:
+    rows = _query("SELECT category, SUM(amount) FROM transactions "
+                  "WHERE type = 'Expense' GROUP BY category ORDER BY 2 DESC")
+    if not rows:
         print("No expenses recorded yet.")
+        return
+    categories, amounts = zip(*rows)
+    plt.figure(figsize=(7, 7))
+    plt.pie(amounts, labels=categories, autopct="%1.1f%%", startangle=90)
+    plt.title("Spending by Category")
+    _show("spending_by_category_pie.png")
+
 
 def line_chart_expense_over_time():
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT date, SUM(amount) FROM transactions WHERE type = 'Expense' GROUP BY date")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if rows:
-        dates = [row[0] for row in rows]
-        amounts = [row[1] for row in rows]
-        
-        plt.plot(dates, amounts, marker='o')
-        plt.xlabel('Date')
-        plt.ylabel('Amount')
-        plt.title('Expenses Over Time')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.show()
-    else:
+    rows = _query(f"SELECT {DAY}, SUM(amount) FROM transactions "
+                  f"WHERE type = 'Expense' GROUP BY {DAY} ORDER BY {DAY}")
+    if not rows:
         print("No expenses recorded yet.")
+        return
+    dates, amounts = zip(*rows)
+    plt.figure(figsize=(9, 5))
+    plt.plot(dates, amounts, marker="o", color="#E45756")
+    plt.xlabel("Date")
+    plt.ylabel("Amount")
+    plt.title("Expenses Over Time")
+    plt.xticks(rotation=45, ha="right")
+    plt.grid(alpha=0.3)
+    _show("expenses_over_time.png")
 
-def stacked_bar_chart_income_expense():
-    conn = get_connection()
-    cursor = conn.cursor()
 
-    cursor.execute("SELECT date, SUM(amount) FROM transactions WHERE type = 'Income' GROUP BY date")
-    income_rows = cursor.fetchall()
-
-    cursor.execute("SELECT date, SUM(amount) FROM transactions WHERE type = 'Expense' GROUP BY date")
-    expense_rows = cursor.fetchall()
-    
-    conn.close()
-
-    if income_rows and expense_rows:
-        income_dates = [row[0] for row in income_rows]
-        income_amounts = [row[1] for row in income_rows]
-        expense_dates = [row[0] for row in expense_rows]
-        expense_amounts = [row[1] for row in expense_rows]
-
-        plt.bar(income_dates, income_amounts, label='Income')
-        plt.bar(expense_dates, expense_amounts, bottom=income_amounts, label='Expense')
-
-        plt.xlabel('Date')
-        plt.ylabel('Amount')
-        plt.title('Income vs Expenses Over Time')
-        plt.xticks(rotation=45)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-    else:
+def income_vs_expense_monthly():
+    income = dict(_query(f"SELECT {MONTH}, SUM(amount) FROM transactions "
+                         f"WHERE type = 'Income' GROUP BY {MONTH}"))
+    expense = dict(_query(f"SELECT {MONTH}, SUM(amount) FROM transactions "
+                          f"WHERE type = 'Expense' GROUP BY {MONTH}"))
+    months = sorted(set(income) | set(expense))
+    if not months:
         print("Not enough data to generate this chart.")
+        return
+
+    x = range(len(months))
+    width = 0.4
+    plt.figure(figsize=(9, 5))
+    plt.bar([i - width / 2 for i in x], [income.get(m, 0) for m in months],
+            width, label="Income", color="#54A24B")
+    plt.bar([i + width / 2 for i in x], [expense.get(m, 0) for m in months],
+            width, label="Expense", color="#E45756")
+    plt.xticks(list(x), months, rotation=45, ha="right")
+    plt.xlabel("Month")
+    plt.ylabel("Amount")
+    plt.title("Income vs Expenses (Monthly)")
+    plt.legend()
+    _show("income_vs_expense_monthly.png")
+
 
 def histogram_expense_distribution():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT amount FROM transactions WHERE type = 'Expense'")
-    rows = cursor.fetchall()
-    conn.close()
-
-    if rows:
-        amounts = [row[0] for row in rows]
-
-        plt.hist(amounts, bins=10)
-        plt.xlabel('Expense Amount')
-        plt.ylabel('Frequency')
-        plt.title('Expense Distribution')
-        plt.tight_layout()
-        plt.show()
-    else:
+    rows = _query("SELECT amount FROM transactions WHERE type = 'Expense'")
+    if not rows:
         print("No expenses recorded yet.")
+        return
+    amounts = [row[0] for row in rows]
+    plt.figure(figsize=(8, 5))
+    plt.hist(amounts, bins=min(10, max(len(amounts), 1)), color="#72B7B2", edgecolor="white")
+    plt.xlabel("Expense Amount")
+    plt.ylabel("Frequency")
+    plt.title("Expense Distribution")
+    _show("expense_distribution.png")
+
 
 def visualize_data():
+    charts = {
+        "1": ("Bar Chart (Spending by Category)", bar_chart_expense),
+        "2": ("Pie Chart (Spending by Category)", pie_chart_expense),
+        "3": ("Line Chart (Expenses Over Time)", line_chart_expense_over_time),
+        "4": ("Grouped Bar Chart (Income vs Expenses, Monthly)", income_vs_expense_monthly),
+        "5": ("Histogram (Expense Distribution)", histogram_expense_distribution),
+    }
     print("\n--- Visualization Menu ---")
-    print("1. Bar Chart (Spending by Category)")
-    print("2. Pie Chart (Spending by Category)")
-    print("3. Line Chart (Expenses Over Time)")
-    print("4. Stacked Bar Chart (Income vs Expenses)")
-    print("5. Histogram (Expense Distribution)")
-    
-    choice = input("Select a visualization option (1-5): ")
+    for key, (label, _) in charts.items():
+        print(f"{key}. {label}")
+    print("6. Back to main menu")
 
-    if choice == "1":
-        bar_chart_expense()
-    elif choice == "2":
-        pie_chart_expense()
-    elif choice == "3":
-        line_chart_expense_over_time()
-    elif choice == "4":
-        stacked_bar_chart_income_expense()
-    elif choice == "5":
-        histogram_expense_distribution()
-    else:
+    choice = input("Select a visualization option (1-6): ").strip()
+    if choice in charts:
+        charts[choice][1]()
+    elif choice != "6":
         print("Invalid choice. Please select a valid option.")
